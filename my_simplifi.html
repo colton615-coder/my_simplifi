@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>My Simplifi (Personal Budget)</title>
+<style>
+  :root{
+    --bg:#0f1220; --card:#171a2b; --muted:#8f98b3; --text:#e9ecff;
+    --accent:#6ee7b7; --accent2:#60a5fa; --danger:#f87171; --warn:#fbbf24;
+    --line:#262b45;
+  }
+  *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+  body{margin:0;background:var(--bg);color:var(--text)}
+  header{display:flex;gap:.75rem;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);background:#0f1326;position:sticky;top:0;z-index:9}
+  h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px}
+  nav{display:flex;gap:.35rem;flex-wrap:wrap}
+  nav button{background:transparent;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:10px;font-weight:600}
+  nav button.active{background:var(--accent2);border-color:transparent;color:#061024}
+  main{padding:16px;max-width:1100px;margin:0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row > .card{flex:1 1 320px}
+  label{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
+  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#101531;color:var(--text)}
+  input[type="month"]{padding:8px 10px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border-bottom:1px dashed var(--line);padding:10px 8px;font-size:14px}
+  th{color:#c9d2ff;text-align:left;background:#121735;position:sticky;top:48px}
+  tfoot td{font-weight:800;border-top:1px solid var(--line)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px}
+  .green{background:rgba(110,231,183,.12);color:#6ee7b7}
+  .red{background:rgba(248,113,113,.12);color:#f87171}
+  .blue{background:rgba(96,165,250,.12);color:#60a5fa}
+  .btn{cursor:pointer;background:var(--accent2);color:#061024;border:none;border-radius:10px;padding:10px 12px;font-weight:700}
+  .btn.secondary{background:transparent;color:var(--text);border:1px solid var(--line)}
+  .right{text-align:right}
+  .subtle{color:var(--muted);font-size:12px}
+  .group{background:#121735;font-weight:800}
+  .totals{background:#101531}
+  .danger{color:#fca5a5}
+  .good{color:#86efac}
+  .notice{font-weight:600}
+  .nowrap{white-space:nowrap}
+  .mono{font-feature-settings:"tnum" 1,"lnum" 1;font-variant-numeric:tabular-nums lining-nums}
+</style>
+</head>
+<body>
+<header>
+  <h1>My Simplifi • envelope budget</h1>
+  <nav id="nav"></nav>
+</header>
+
+<main id="view"></main>
+
+<script>
+/* ------------------ Utilities ------------------ */
+const $ = (sel, el=document)=>el.querySelector(sel);
+const $$ = (sel, el=document)=>Array.from(el.querySelectorAll(sel));
+const fmt = n => (isNaN(n)?0:n).toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:2});
+const monthKey = d => {
+  const dt = (d instanceof Date) ? d : new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+};
+const startOfMonth = (y,m)=>new Date(y, m-1, 1);
+const endOfMonth   = (y,m)=>new Date(y, m, 0, 23,59,59,999);
+const inMonth = (d, y, m) => {
+  const dt = new Date(d);
+  return dt >= startOfMonth(y,m) && dt <= endOfMonth(y,m);
+};
+const id = ()=>crypto.randomUUID ? crypto.randomUUID() : (Math.random().toString(36).slice(2)+Date.now());
+
+/* ------------------ Data (seeded with your numbers) ------------------ */
+const STORE_KEY = "my-simplifi-data-v1";
+
+const seedData = {
+  settings: { twoUsers:false, rollover:false, efMonthsSingle:6, efMonthsDual:3 },
+  accounts: [
+    {id:id(), name:"Checking", type:"Checking", opening:0},
+    {id:id(), name:"Credit Card", type:"Credit Card", opening:0},
+    {id:id(), name:"Cash", type:"Cash", opening:0},
+  ],
+  categories: [
+    {id:id(), name:"Income", group:"Income", isIncome:true},
+    {id:id(), name:"Rent", group:"Housing"},
+    {id:id(), name:"Electricity", group:"Utilities"},
+    {id:id(), name:"Water/Sewer", group:"Utilities"},
+    {id:id(), name:"Gas/Heating", group:"Utilities"},
+    {id:id(), name:"Internet", group:"Utilities"},
+
+    {id:id(), name:"Groceries", group:"Food"},
+    {id:id(), name:"Dining Out", group:"Food"},
+
+    {id:id(), name:"Gasoline", group:"Transportation"},
+    {id:id(), name:"Auto Insurance", group:"Transportation"},
+
+    {id:id(), name:"Streaming Services", group:"Personal"},
+    {id:id(), name:"Other Subscriptions", group:"Personal"},
+    {id:id(), name:"Personal Care", group:"Personal"},
+
+    {id:id(), name:"Loan Payments", group:"Debt"},
+
+    {id:id(), name:"Emergency Fund", group:"Savings"},
+    {id:id(), name:"Retirement", group:"Savings"},
+    {id:id(), name:"Investments", group:"Savings"},
+  ],
+  budgets: {
+    // Your plan for Aug 2025
+    "2025-08": {} // fill below after categories are created
+  },
+  transactions: [
+    // Seed your $8,000 income on Aug 1 to Checking
+    {id:id(), date:"2025-08-01", accountName:"Checking", payee:"Employer", category:"Income", memo:"Paycheck", outflow:0, inflow:8000, cleared:true}
+  ]
+};
+
+// Fill seed budgets by name (lookup IDs later when computing)
+const plan = {
+  "Rent":1700,
+  "Groceries":500,
+  "Dining Out":500,
+  "Gasoline":260,
+  "Auto Insurance":315,
+  "Streaming Services":114.32,
+  "Other Subscriptions":179.96,
+  "Personal Care":200,
+  "Loan Payments":850,
+  "Electricity":0, "Water/Sewer":0, "Gas/Heating":0, "Internet":0,
+  "Emergency Fund":0, "Retirement":0, "Investments":0
+};
+seedData.budgets["2025-08"] = plan;
+
+let DB = load() || seedData;
+save(); // ensure it exists
+
+/* ------------------ Core getters ------------------ */
+const getCat = name => DB.categories.find(c=>c.name===name);
+const getCatIdByName = name => (getCat(name)||{}).id;
+const catsByGroup = () => {
+  const map = {};
+  DB.categories.forEach(c=>{
+    if (!map[c.group]) map[c.group] = [];
+    if (!c.isIncome) map[c.group].push(c);
+  });
+  return map;
+};
+const txnsForMonth = (y,m) => DB.transactions.filter(t => inMonth(t.date,y,m));
+const sum = arr => arr.reduce((a,b)=>a+(+b||0),0);
+
+/* Balances per account */
+function accountBalance(name){
+  const base = (DB.accounts.find(a=>a.name===name)||{opening:0}).opening || 0;
+  const inflow = sum(DB.transactions.filter(t=>t.accountName===name).map(t=>+t.inflow||0));
+  const outflow = sum(DB.transactions.filter(t=>t.accountName===name).map(t=>+t.outflow||0));
+  return base + inflow - outflow;
+}
+
+/* Budget math */
+function monthIncome(y,m){
+  const tx = txnsForMonth(y,m).filter(t=>{
+    const c = DB.categories.find(c=>c.name===t.category);
+    return c && c.isIncome;
+  });
+  return sum(tx.map(t=>+t.inflow||0));
+}
+function activityByCategory(catName, y,m){
+  const tx = txnsForMonth(y,m).filter(t=>t.category===catName);
+  return sum(tx.map(t=>+t.outflow||0)) - sum(tx.map(t=>+t.inflow||0)); // inflow-to-category credits it
+}
+function budgeted(catName, y,m){
+  const key = `${y}-${String(m).padStart(2,'0')}`;
+  const pg = DB.budgets[key] || {};
+  return +pg[catName] || 0;
+}
+function totalBudgeted(y,m){
+  const groups = catsByGroup();
+  let total=0;
+  for (const g in groups){
+    groups[g].forEach(c=>{
+      // exclude Income group & include Savings (you decide budgets)
+      total += budgeted(c.name,y,m);
+    });
+  }
+  return total;
+}
+function available(catName, y,m){
+  const b = budgeted(catName,y,m);
+  const a = activityByCategory(catName,y,m);
+  if (!DB.settings.rollover) return b - a;
+  // rollover: prev available + current budget - current activity
+  const prev = prevAvailable(catName, y, m);
+  return prev + b - a;
+}
+function prevAvailable(catName, y, m){
+  // Find previous month recursively (base 0 if none)
+  const d = new Date(y, m-2, 1); // previous month
+  if (d.getFullYear()<2000) return 0;
+  const py = d.getFullYear(), pm = d.getMonth()+1;
+  const b = budgeted(catName,py,pm);
+  const a = activityByCategory(catName,py,pm);
+  const prev = prevAvailable(catName, py, pm);
+  return (DB.settings.rollover ? prev : 0) + b - a;
+}
+function toBeBudgeted(y,m){
+  // Simple rule: income this month minus total budgeted this month
+  return monthIncome(y,m) - totalBudgeted(y,m);
+}
+
+/* ------------------ UI scaffolding ------------------ */
+const views = ["Budget","Transactions","Accounts","Summary","Settings","Data"];
+const view = $("#view");
+const nav = $("#nav");
+views.forEach(v=>{
+  const b = document.createElement("button");
+  b.textContent = v;
+  b.onclick = ()=>render(v);
+  nav.appendChild(b);
+});
+function setActive(tab){
+  $$("nav button").forEach(b=>b.classList.toggle("active", b.textContent===tab));
+}
+
+/* ------------------ Renderers ------------------ */
+function render(tab="Budget"){
+  setActive(tab);
+  if (tab==="Budget") return renderBudget();
+  if (tab==="Transactions") return renderTransactions();
+  if (tab==="Accounts") return renderAccounts();
+  if (tab==="Summary") return renderSummary();
+  if (tab==="Settings") return renderSettings();
+  if (tab==="Data") return renderData();
+}
+
+/* Budget */
+function renderBudget(){
+  const today = new Date();
+  const defaultMonth = monthKey(DB.transactions[0]?.date || today);
+  const [dy, dm] = defaultMonth.split("-").map(n=>+n);
+
+  view.innerHTML = `
+    <div class="row">
+      <div class="card" style="flex:1 1 220px">
+        <label>Month</label>
+        <input id="monthPick" type="month" value="${defaultMonth}">
+        <div class="subtle" style="margin-top:6px">Set budget per category. <span class="pill blue">TBB</span> updates instantly.</div>
+      </div>
+      <div class="card" style="flex:1 1 220px">
+        <div><span class="pill green">Income</span> <b class="mono" id="incVal">${fmt(monthIncome(dy,dm))}</b></div>
+        <div style="margin-top:8px"><span class="pill blue">To Be Budgeted</span> <b class="mono" id="tbbVal">${fmt(toBeBudgeted(dy,dm))}</b></div>
+      </div>
+    </div>
+    <div class="card">
+      <table id="budgetTbl">
+        <thead>
+          <tr><th class="nowrap">Group</th><th>Category</th><th class="right nowrap">Budgeted</th><th class="right nowrap">Activity</th><th class="right nowrap">Available</th></tr>
+        </thead>
+        <tbody></tbody>
+        <tfoot>
+          <tr class="totals"><td></td><td style="font-weight:800">TOTALS</td>
+          <td class="right mono" id="totBud"></td>
+          <td class="right mono" id="totAct"></td>
+          <td class="right mono" id="totAvail"></td></tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+  const monthEl = $("#monthPick");
+  const renderRows = ()=>{
+    const [y,m] = monthEl.value.split("-").map(n=>+n);
+    $("#incVal").textContent = fmt(monthIncome(y,m));
+    $("#tbbVal").textContent = fmt(toBeBudgeted(y,m));
+
+    const body = $("#budgetTbl tbody");
+    body.innerHTML = "";
+    let totB=0, totA=0, totV=0;
+
+    const groups = catsByGroup();
+    Object.keys(groups).sort((a,b)=>a.localeCompare(b)).forEach(g=>{
+      // group row
+      const gr = document.createElement("tr");
+      gr.className="group";
+      gr.innerHTML = `<td>${g}</td><td colspan="4"></td>`;
+      body.appendChild(gr);
+
+      groups[g].forEach(cat=>{
+        const b = budgeted(cat.name,y,m);
+        const a = activityByCategory(cat.name,y,m);
+        const v = available(cat.name,y,m);
+        totB += b; totA += a; totV += v;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td></td>
+          <td>${cat.name}</td>
+          <td class="right"><input class="mono" style="text-align:right;width:120px" type="number" step="0.01" value="${b}" data-cat="${cat.name}"></td>
+          <td class="right mono">${fmt(a)}</td>
+          <td class="right mono ${v<0?'danger':'good'}">${fmt(v)}</td>
+        `;
+        body.appendChild(tr);
+      });
+    });
+
+    $("#totBud").textContent = fmt(totB);
+    $("#totAct").textContent = fmt(totA);
+    $("#totAvail").textContent = fmt(totV);
+
+    // budget edits
+    $$('input[data-cat]', body).forEach(inp=>{
+      inp.onchange = e=>{
+        const cat = e.target.dataset.cat;
+        const val = parseFloat(e.target.value||"0");
+        const key = monthEl.value;
+        DB.budgets[key] = DB.budgets[key] || {};
+        DB.budgets[key][cat] = val;
+        save();
+        renderBudget(); // re-render to refresh TBB/available
+      };
+    });
+  };
+  monthEl.onchange = renderRows;
+  renderRows();
+}
+
+/* Transactions */
+function renderTransactions(){
+  const todayKey = monthKey(new Date());
+  view.innerHTML = `
+    <div class="row">
+      <div class="card">
+        <label>Filter Month</label>
+        <input id="txMonth" type="month" value="${todayKey}">
+      </div>
+      <div class="card">
+        <label>New Transaction</label>
+        <div class="row" style="gap:8px">
+          <div style="flex:1 1 120px"><input id="txDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+          <div style="flex:1 1 120px"><select id="txAcct"></select></div>
+          <div style="flex:1 1 160px"><input id="txPayee" placeholder="Payee"></div>
+          <div style="flex:1 1 160px"><select id="txCat"></select></div>
+          <div style="flex:1 1 140px"><input id="txMemo" placeholder="Memo"></div>
+          <div style="flex:1 1 110px"><input id="txOut" type="number" step="0.01" placeholder="Outflow"></div>
+          <div style="flex:
